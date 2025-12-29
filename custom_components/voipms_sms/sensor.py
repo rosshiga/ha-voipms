@@ -28,11 +28,17 @@ async def async_setup_platform(
         _LOGGER.error("Missing phone_number or webhook_id in discovery_info")
         return
 
+    # Check if sensor already exists for this phone number
+    sensors = hass.data.setdefault("voipms_sms_sensors", {})
+    if phone_number in sensors:
+        _LOGGER.debug("voipms_sms: Sensor already exists for %s, skipping duplicate creation", phone_number)
+        return
+
     sensor = VoIPMSIncomingSMSSensor(hass, phone_number, webhook_id)
     async_add_entities([sensor], True)
     
     # Store sensor reference in hass.data for webhook updates
-    hass.data.setdefault("voipms_sms_sensors", {})[phone_number] = sensor
+    sensors[phone_number] = sensor
 
 
 class VoIPMSIncomingSMSSensor(SensorEntity):

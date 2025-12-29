@@ -89,17 +89,22 @@ async def _setup_voipms_sms(hass: HomeAssistant, user: str, password: str, did: 
         webhook_id
     )
 
-    # Load sensor platform for this DID
-    discovery_info = {"phone_number": did, "webhook_id": webhook_id}
-    hass.async_create_task(
-        async_load_platform(
-            hass,
-            "sensor",
-            DOMAIN,
-            discovery_info,
-            config or {},
+    # Check if sensor already exists for this DID to avoid duplicates
+    sensors = hass.data.get("voipms_sms_sensors", {})
+    if did not in sensors:
+        # Load sensor platform for this DID
+        discovery_info = {"phone_number": did, "webhook_id": webhook_id}
+        hass.async_create_task(
+            async_load_platform(
+                hass,
+                "sensor",
+                DOMAIN,
+                discovery_info,
+                config or {},
+            )
         )
-    )
+    else:
+        _LOGGER.debug("voipms_sms: Sensor already exists for DID %s, skipping creation", did)
 
     return True
 
