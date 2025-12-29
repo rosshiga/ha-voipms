@@ -1,5 +1,5 @@
 # voipms_sms
-Home Assistant custom integration for sending SMS (text) and MMS (photo snapshot) messages via [Voip.ms](https://voip.ms/) REST Api 
+Home Assistant custom integration for sending and receiving SMS (text) and MMS (photo snapshot) messages via [Voip.ms](https://voip.ms/) REST Api 
 
 ## Prerequisites
 - Voip.ms account with a DID that has SMS turned on
@@ -9,6 +9,7 @@ Home Assistant custom integration for sending SMS (text) and MMS (photo snapshot
   - External IP address of your HA site, or DNS domain (sender whitelist)
   - Bearer token (optional, not needed for sending)
 - Home Assistant running
+- For incoming SMS: Home Assistant must be accessible from the internet (for webhook callbacks)
 
 ## How to install the integration
 
@@ -33,14 +34,14 @@ Click on it, then proceed with the configuration steps.
 
 Update `configuration.yml` and add the following section:
 
-```
+```yaml
 voipms_sms:
   account_user: !secret voipms_user
   api_password: !secret voipms_password
-  sender_did: "9999999999"
+  did: "1234567890"
 ```
 
-Use your Voip.ms login email and the 10 digit DID phone number for the sender_did value, without punctuation.
+Use your Voip.ms login email and the 10 digit DID phone number for the `did` value, without punctuation. This DID is used for both sending and receiving SMS.
 
 Add the user and password secrets to your `secrets.yml`:
 
@@ -86,11 +87,38 @@ I use the services in flows, e.g. with Node Red as an Action node:
 
 ![alt text](node-red.png)
 
+## Receiving Incoming SMS
+
+This integration creates a sensor entity and webhook for your configured DID. When an SMS is received, the sensor is updated with the message details.
+
+### Setup Incoming SMS
+
+1. Configure your `did` in the configuration (see above)
+2. Restart Home Assistant
+3. Get your webhook URL by calling the `voipms_sms.get_webhook_url` service (check Developer Tools > Events for `voipms_sms_webhook_url` event)
+4. Configure the webhook URL in your VoIP.ms portal under SMS settings
+
+### Sensor Entity
+
+A sensor entity is created for your DID: `sensor.voip_ms_sms_YOURNUMBER`
+
+**Attributes:**
+- `from`: The phone number that sent the message
+- `message`: The text content of the message  
+- `last_updated`: When the last message was received
+- `message_id`: Unique ID of the message
+- `phone_number`: The phone number this sensor tracks
+- `webhook_url`: The webhook URL for this phone number (for configuring in VoIP.ms)
+
+### Webhook Security
+
+Your DID gets a unique, cryptographically secure webhook URL. The URL contains a hash derived from your DID and a randomly generated secret, making it impossible to guess.
+
+### Error Handling
+
+If an incoming webhook has an unknown event type or malformed data, a persistent notification will be shown in Home Assistant.
+
 ## FAQ
-
-Q: Are there plans for adding other API functions to the integration, for example to receive text messages?
-
-A: Not at this time.
 
 Q: Can I send to multiple phone numbers at a time, i.e. is there support for group messages?
 
