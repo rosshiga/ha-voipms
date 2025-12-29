@@ -40,6 +40,70 @@ async def get_base64_data(image_path):
     return await asyncio.to_thread(encode)
 
 
+async def _setup_voipms_sms(hass: HomeAssistant, user: str, password: str, did: str, config: dict = None):
+    """Shared setup logic for both YAML and config entry setups."""
+    if not user or not password or not did:
+        _LOGGER.error("Missing required configuration fields: user=%s, password=%s, did=%s", 
+                     bool(user), bool(password), bool(did))
+        return False
+
+    # Initialize data storage
+    hass.data.setdefault(DATA_KEY, {
+        "webhooks": {},
+        "secret_keys": {},
+        "entries": {},
+        "yaml_config": None,
+    })
+    hass.data.setdefault("voipms_sms_sensors", {})
+    
+    # Store YAML config data if provided (for backward compatibility)
+    if config:
+        hass.data[DATA_KEY]["yaml_config"] = {
+            "account_user": user,
+            "api_password": password,
+            "did": did,
+        }
+
+    # Generate or retrieve secret key for this DID
+    if did not in hass.data[DATA_KEY]["secret_keys"]:
+        hass.data[DATA_KEY]["secret_keys"][did] = generate_secret_key()
+    
+    secret_key = hass.data[DATA_KEY]["secret_keys"][did]
+    webhook_id = generate_webhook_id(did, secret_key)
+    
+    # Store webhook info
+    hass.data[DATA_KEY]["webhooks"][did] = webhook_id
+    
+    # Register webhook
+    async_register(
+        hass,
+        DOMAIN,
+        f"VoIP.ms SMS Webhook for {did}",
+        webhook_id,
+        lambda hass, wid, req: handle_webhook(hass, wid, req),
+    )
+    
+    _LOGGER.info(
+        "voipms_sms: Registered webhook for %s with ID: %s",
+        did,
+        webhook_id
+    )
+
+    # Load sensor platform for this DID
+    discovery_info = {"phone_number": did, "webhook_id": webhook_id}
+    hass.async_create_task(
+        async_load_platform(
+            hass,
+            "sensor",
+            DOMAIN,
+            discovery_info,
+            config or {},
+        )
+    )
+
+    return True
+
+
 async def async_setup_entry(hass: HomeAssistant, entry):
     """Set up VoIP.ms SMS from a config entry."""
     # Store entry data
@@ -48,10 +112,22 @@ async def async_setup_entry(hass: HomeAssistant, entry):
         "secret_keys": {},
         "entries": {},
     })
+    
+    # Extract configuration from entry
+    user = entry.data.get("account_user")
+    password = entry.data.get("api_password")
+    did = entry.data.get("did")
+    
+    if not user or not password or not did:
+        _LOGGER.error("Config entry missing required fields: account_user=%s, api_password=%s, did=%s",
+                     bool(user), bool(password), bool(did))
+        return False
+    
+    # Store entry data
     hass.data[DATA_KEY]["entries"][entry.entry_id] = entry.data
     
-    # Set up this entry
-    result = await async_setup(hass, {DOMAIN: entry.data})
+    # Set up this entry using shared setup logic
+    result = await _setup_voipms_sms(hass, user, password, did)
     
     # Register services only once (on first entry)
     if len(hass.data[DATA_KEY]["entries"]) == 1:
@@ -177,7 +253,11 @@ async def send_mms(hass, user, password, sender_did, call):
 
 
 async def async_setup(hass: HomeAssistant, config: dict):
-    """Set up the VoIP.ms SMS integration."""
+    """Set up the VoIP.ms SMS integration from YAML config."""
+    # Only proceed if YAML config is present (not called from config entry)
+    if DOMAIN not in config:
+        return True  # Config entry setup will handle it
+    
     conf = config.get(DOMAIN, {})
     user = conf.get("account_user")
     password = conf.get("api_password")
@@ -187,65 +267,14 @@ async def async_setup(hass: HomeAssistant, config: dict):
         _LOGGER.error("Missing required configuration fields.")
         return False
 
-    # Initialize data storage
-    hass.data.setdefault(DATA_KEY, {
-        "webhooks": {},
-        "secret_keys": {},
-        "entries": {},
-        "yaml_config": None,  # Store YAML config for backward compatibility
-    })
-    hass.data.setdefault("voipms_sms_sensors", {})
-    
-    # Store YAML config data (for backward compatibility)
-    # Note: This stores credentials in memory. For better security, migrate to config entries.
-    # Only store non-sensitive data structure, not the actual credentials
-    hass.data[DATA_KEY]["yaml_config"] = {
-        "account_user": user,
-        "api_password": password,  # Stored in memory - consider migrating to config entries
-        "did": did,
-    }
-
-    # Generate or retrieve secret key for this DID
-    if did not in hass.data[DATA_KEY]["secret_keys"]:
-        hass.data[DATA_KEY]["secret_keys"][did] = generate_secret_key()
-    
-    secret_key = hass.data[DATA_KEY]["secret_keys"][did]
-    webhook_id = generate_webhook_id(did, secret_key)
-    
-    # Store webhook info
-    hass.data[DATA_KEY]["webhooks"][did] = webhook_id
-    
-    # Register webhook
-    async_register(
-        hass,
-        DOMAIN,
-        f"VoIP.ms SMS Webhook for {did}",
-        webhook_id,
-        lambda hass, wid, req: handle_webhook(hass, wid, req),
-    )
-    
-    _LOGGER.info(
-        "voipms_sms: Registered webhook for %s with ID: %s",
-        did,
-        webhook_id
-    )
-
-    # Load sensor platform for this DID
-    hass.async_create_task(
-        async_load_platform(
-            hass,
-            "sensor",
-            DOMAIN,
-            {"phone_number": did, "webhook_id": webhook_id},
-            config,
-        )
-    )
+    # Use shared setup logic
+    result = await _setup_voipms_sms(hass, user, password, did, config)
 
     # Register services (for YAML config or if not already registered)
-    if not hass.services.has_service(DOMAIN, "send_sms"):
+    if result and not hass.services.has_service(DOMAIN, "send_sms"):
         _register_services(hass)
     
-    return True
+    return result
 
 
 def _get_config_data(hass: HomeAssistant):
