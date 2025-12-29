@@ -70,6 +70,49 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             step_id="user", data_schema=STEP_USER_DATA_SCHEMA, errors=errors
         )
 
+    @staticmethod
+    async def async_get_options_flow(config_entry):
+        """Get the options flow for this handler."""
+        return OptionsFlowHandler(config_entry)
+
+
+class OptionsFlowHandler(config_entries.OptionsFlow):
+    """Handle options flow for VoIP.ms SMS."""
+
+    def __init__(self, config_entry):
+        """Initialize options flow."""
+        self.config_entry = config_entry
+
+    async def async_step_init(self, user_input: dict[str, Any] | None = None) -> FlowResult:
+        """Display webhook URL information."""
+        did = self.config_entry.data.get("did")
+        
+        if not did:
+            return self.async_abort(reason="no_did")
+        
+        # Get webhook ID from hass.data
+        from . import DATA_KEY
+        data_key = self.hass.data.get(DATA_KEY, {})
+        webhooks = data_key.get("webhooks", {})
+        webhook_id = webhooks.get(did)
+        
+        if not webhook_id:
+            return self.async_abort(reason="no_webhook")
+        
+        # Build webhook URL
+        base_url = self.hass.config.external_url or self.hass.config.internal_url or "http://your-ha-instance:8123"
+        webhook_url = f"{base_url}/api/webhook/{webhook_id}"
+        
+        # Show the webhook URL in a description
+        return self.async_show_form(
+            step_id="init",
+            data_schema=vol.Schema({}),
+            description_placeholders={
+                "webhook_url": webhook_url,
+                "did": did,
+            },
+        )
+
 
 class InvalidAuth(HomeAssistantError):
     """Error to indicate there is invalid auth."""

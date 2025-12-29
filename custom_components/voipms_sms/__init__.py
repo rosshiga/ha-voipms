@@ -334,10 +334,18 @@ def _register_services(hass: HomeAssistant):
         await send_mms(hass, user, password, did, call)
 
     async def handle_get_webhook_url(call):
-        """Service to get webhook URL for the configured DID."""
+        """Service to get webhook URL for the configured DID - displays in GUI notification."""
+        from homeassistant.components import persistent_notification
+        
         config_data = _get_config_data(hass)
         if not config_data:
             _LOGGER.error("voipms_sms: No configuration found. Please set up the integration.")
+            persistent_notification.async_create(
+                hass,
+                "No configuration found. Please set up the integration.",
+                title="VoIP.ms SMS",
+                notification_id="voipms_sms_error"
+            )
             return
         
         did = config_data.get("did")
@@ -346,18 +354,25 @@ def _register_services(hass: HomeAssistant):
         
         if not webhook_id:
             _LOGGER.error("voipms_sms: No webhook found for DID: %s", did)
+            persistent_notification.async_create(
+                hass,
+                f"No webhook found for DID: {did}",
+                title="VoIP.ms SMS",
+                notification_id="voipms_sms_error"
+            )
             return
         
         base_url = hass.config.external_url or hass.config.internal_url or "http://your-ha-instance:8123"
         webhook_url = f"{base_url}/api/webhook/{webhook_id}"
         
-        # Fire an event with the webhook URL
-        hass.bus.async_fire(
-            "voipms_sms_webhook_url",
-            {"phone_number": did, "webhook_url": webhook_url}
+        # Show persistent notification with webhook URL
+        persistent_notification.async_create(
+            hass,
+            f"**Webhook URL for DID {did}:**\n\n`{webhook_url}`\n\nCopy this URL and configure it in your VoIP.ms portal under SMS settings.",
+            title="VoIP.ms SMS - Webhook URL",
+            notification_id="voipms_sms_webhook_url"
         )
-        # Log webhook URL generation but be cautious about exposing it
-        _LOGGER.info("voipms_sms: Webhook URL generated for %s", did)
+        _LOGGER.info("voipms_sms: Webhook URL displayed in notification for %s", did)
 
     hass.services.async_register(DOMAIN, "send_sms", handle_send_sms)
     hass.services.async_register(DOMAIN, "send_mms", handle_send_mms)
