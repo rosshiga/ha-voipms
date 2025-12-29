@@ -29,8 +29,14 @@ def generate_secret_key() -> str:
 async def handle_webhook(hass: HomeAssistant, webhook_id: str, request: web.Request) -> web.Response:
     """Handle incoming webhook requests."""
     try:
+        # Verify webhook_id is valid (Home Assistant already validates routing, but double-check)
+        if not webhook_id or not webhook_id.startswith(WEBHOOK_ID_PREFIX):
+            _LOGGER.warning("voipms_sms: Invalid webhook_id format")
+            return web.Response(status=403, text="Invalid webhook")
+        
         data = await request.json()
-        _LOGGER.debug("voipms_sms: Received webhook data: %s", data)
+        # Don't log full webhook data as it may contain sensitive information
+        _LOGGER.debug("voipms_sms: Received webhook request")
         
         # Validate the payload structure
         if not isinstance(data, dict):

@@ -10,5 +10,6 @@
     ],
     "requirements": [],  
     "iot_class": "cloud_push",
-    "integration_type": "service"
+    "integration_type": "service",
+    "config_flow": true
 }

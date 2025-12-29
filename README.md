@@ -32,7 +32,22 @@ Click on it, then proceed with the configuration steps.
 
 ### Configuration
 
-Update `configuration.yml` and add the following section:
+#### GUI Setup (Recommended)
+
+1. Go to **Settings** > **Devices & Services**
+2. Click **Add Integration**
+3. Search for **VoIP.ms SMS** and select it
+4. Enter your configuration:
+   - **Account User**: Your Voip.ms login email
+   - **API Password**: Your Voip.ms API password
+   - **DID**: Your 10-digit phone number (without punctuation, e.g., `1234567890`)
+5. Click **Submit** to complete the setup
+
+The integration will be configured automatically - no YAML editing required!
+
+#### YAML Setup (Legacy)
+
+Alternatively, you can configure via YAML by updating `configuration.yml`:
 
 ```yaml
 voipms_sms:
@@ -127,4 +142,4 @@ A: No, the Voip.ms API only accepts a single recipient.
 
 ## Planned enhancements (with no target date):
 
-- Home-Assistantify, i.e. publish through HACS and make the installation easier.
+- Support for multiple DIDs with service selection

@@ -59,16 +59,14 @@ class VoIPMSIncomingSMSSensor(SensorEntity):
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         """Return sensor attributes."""
-        base_url = self._hass.config.external_url or self._hass.config.internal_url or "http://your-ha-instance:8123"
-        webhook_url = f"{base_url}/api/webhook/{self._webhook_id}"
-        
+        # Don't expose webhook_url in attributes for security/privacy
+        # Users can get it via the service call if needed
         return {
             "from": self._from,
             "message": self._message,
             "last_updated": self._last_updated,
             "message_id": self._message_id,
             "phone_number": self._phone_number,
-            "webhook_url": webhook_url,
         }
 
     @property
@@ -89,11 +87,11 @@ class VoIPMSIncomingSMSSensor(SensorEntity):
             self._state = f"Message from {self._from}" if self._from else "New message"
             
             self.async_write_ha_state()
+            # Log receipt but don't log full message content for privacy
             _LOGGER.info(
-                "voipms_sms: Received SMS on %s from %s: %s",
+                "voipms_sms: Received SMS on %s from %s",
                 self._phone_number,
-                self._from,
-                self._message
+                self._from
             )
         except Exception as e:
             _LOGGER.error("voipms_sms: Error updating sensor from webhook: %s", e)
