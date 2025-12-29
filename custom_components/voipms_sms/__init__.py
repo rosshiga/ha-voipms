@@ -40,7 +40,7 @@ async def get_base64_data(image_path):
     return await asyncio.to_thread(encode)
 
 
-async def _setup_voipms_sms(hass: HomeAssistant, user: str, password: str, did: str, config: dict = None):
+async def _setup_voipms_sms(hass: HomeAssistant, user: str, password: str, did: str, config: dict = None, entry=None):
     """Shared setup logic for both YAML and config entry setups."""
     if not user or not password or not did:
         _LOGGER.error("Missing required configuration fields: user=%s, password=%s, did=%s", 
@@ -65,10 +65,38 @@ async def _setup_voipms_sms(hass: HomeAssistant, user: str, password: str, did: 
         }
 
     # Generate or retrieve secret key for this DID
-    if did not in hass.data[DATA_KEY]["secret_keys"]:
-        hass.data[DATA_KEY]["secret_keys"][did] = generate_secret_key()
+    # Store in config entry options for persistence across restarts
+    secret_key = None
     
-    secret_key = hass.data[DATA_KEY]["secret_keys"][did]
+    # Try to get from config entry options first (for persistence)
+    if entry:
+        secret_key = entry.options.get("webhook_secret_key")
+        if secret_key:
+            _LOGGER.debug("voipms_sms: Retrieved persistent secret key for DID %s", did)
+    else:
+        # For YAML config, try to find matching entry
+        entries = hass.config_entries.async_entries(DOMAIN)
+        for config_entry in entries:
+            if config_entry.data.get("did") == did:
+                secret_key = config_entry.options.get("webhook_secret_key")
+                entry = config_entry
+                break
+    
+    # If not found, generate new one
+    if not secret_key:
+        secret_key = generate_secret_key()
+        _LOGGER.info("voipms_sms: Generated new secret key for DID %s (will persist across restarts)", did)
+        
+        # Save to config entry options for persistence
+        if entry:
+            options = dict(entry.options)
+            options["webhook_secret_key"] = secret_key
+            hass.config_entries.async_update_entry(entry, options=options)
+            _LOGGER.debug("voipms_sms: Saved secret key to config entry options for DID %s", did)
+    
+    # Store in memory for this session
+    hass.data[DATA_KEY]["secret_keys"][did] = secret_key
+    
     webhook_id = generate_webhook_id(did, secret_key)
     
     # Store webhook info
@@ -131,8 +159,8 @@ async def async_setup_entry(hass: HomeAssistant, entry):
     # Store entry data
     hass.data[DATA_KEY]["entries"][entry.entry_id] = entry.data
     
-    # Set up this entry using shared setup logic
-    result = await _setup_voipms_sms(hass, user, password, did)
+    # Set up this entry using shared setup logic (pass entry for persistent secret key)
+    result = await _setup_voipms_sms(hass, user, password, did, entry=entry)
     
     # Register services only once (on first entry)
     if len(hass.data[DATA_KEY]["entries"]) == 1:
@@ -272,8 +300,8 @@ async def async_setup(hass: HomeAssistant, config: dict):
         _LOGGER.error("Missing required configuration fields.")
         return False
 
-    # Use shared setup logic
-    result = await _setup_voipms_sms(hass, user, password, did, config)
+    # Use shared setup logic (for YAML, no entry available)
+    result = await _setup_voipms_sms(hass, user, password, did, config=config)
 
     # Register services (for YAML config or if not already registered)
     if result and not hass.services.has_service(DOMAIN, "send_sms"):
@@ -362,8 +390,22 @@ def _register_services(hass: HomeAssistant):
             )
             return
         
-        base_url = hass.config.external_url or hass.config.internal_url or "http://your-ha-instance:8123"
+        # Get the actual Home Assistant URL
+        base_url = None
+        if hass.config.external_url:
+            base_url = str(hass.config.external_url).rstrip('/')
+            _LOGGER.debug("voipms_sms: Using external_url: %s", base_url)
+        elif hass.config.internal_url:
+            base_url = str(hass.config.internal_url).rstrip('/')
+            _LOGGER.debug("voipms_sms: Using internal_url: %s", base_url)
+        else:
+            # Fallback: try to construct from known config
+            _LOGGER.warning("voipms_sms: No external or internal URL configured in Home Assistant. Please set external_url or internal_url in configuration.yaml")
+            # Try to get from the request if available, or use a placeholder
+            base_url = "http://your-ha-instance:8123"
+        
         webhook_url = f"{base_url}/api/webhook/{webhook_id}"
+        _LOGGER.debug("voipms_sms: Generated webhook URL: %s", webhook_url)
         
         # Show persistent notification with webhook URL
         persistent_notification.async_create(
